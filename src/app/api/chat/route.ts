@@ -24,6 +24,8 @@ Rules:
 - Use the get_my_orders tool to answer any question about the user's orders. Never invent order details.
 - Order statuses mean: PENDING = waiting for the restaurant to confirm, CONFIRMED = restaurant accepted it, PREPARING = food is being made, OUT_FOR_DELIVERY = on its way, DELIVERED = completed, CANCELLED = cancelled.
 - For refunds or complaints about food quality, apologize and suggest the user contact the restaurant directly.
+- If the user asks about their business, revenue, orders received, popular items, or any analytics about their restaurant(s), use the get_business_analytics tool. Never invent business data.
+- When presenting analytics, format numbers clearly (e.g. currency with $, round percentages). Keep summaries concise.
 - Be friendly and concise — a couple of sentences is usually enough.
 - If asked about anything unrelated to OrangeOrder, politely steer back.`;
 
@@ -33,6 +35,25 @@ const tools: Anthropic.Tool[] = [
     description:
       "Get the signed-in user's recent orders with status, items, restaurant, and delivery details. Call this whenever the user asks about their order, where it is, or what they ordered.",
     input_schema: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    name: "get_business_analytics",
+    description:
+      "Get analytics for the restaurants owned by the signed-in user: total revenue, order counts by status, top menu items, and recent orders. Use this whenever a business owner asks about their sales, revenue, orders, popular items, or any business performance question. Optionally filter by a specific restaurant name.",
+    input_schema: {
+      type: "object",
+      properties: {
+        restaurantName: {
+          type: "string",
+          description: "Optional: filter to a specific restaurant the user owns (partial name match). Omit to get analytics across all their restaurants.",
+        },
+        days: {
+          type: "number",
+          description: "Optional: number of past days to include (e.g. 7 for last week, 30 for last month). Omit for all-time.",
+        },
+      },
+      additionalProperties: false,
+    },
   },
   {
     name: "get_restaurant_info",
@@ -73,6 +94,89 @@ async function runTool(name: string, input: unknown, userId: string): Promise<st
         items: o.items.map((i) => `${i.quantity}x ${i.menuItem.name}`),
       }))
     );
+  }
+
+  if (name === "get_business_analytics") {
+    const { restaurantName, days } = (input ?? {}) as { restaurantName?: string; days?: number };
+
+    const since = days ? new Date(Date.now() - days * 86_400_000) : undefined;
+
+    const restaurants = await prisma.restaurant.findMany({
+      where: {
+        ownerId: userId,
+        ...(restaurantName ? { name: { contains: restaurantName, mode: "insensitive" } } : {}),
+      },
+      select: { id: true, name: true },
+    });
+
+    if (restaurants.length === 0) {
+      return restaurantName
+        ? `No restaurant matching "${restaurantName}" found in your account.`
+        : "You don't own any restaurants on OrangeOrder yet.";
+    }
+
+    const restaurantIds = restaurants.map((r) => r.id);
+
+    const orders = await prisma.order.findMany({
+      where: {
+        restaurantId: { in: restaurantIds },
+        ...(since ? { createdAt: { gte: since } } : {}),
+      },
+      include: {
+        items: { include: { menuItem: { select: { name: true } } } },
+        restaurant: { select: { name: true } },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    const totalRevenue = orders
+      .filter((o) => o.status !== "CANCELLED")
+      .reduce((sum, o) => sum + Number(o.total), 0);
+
+    const statusCounts: Record<string, number> = {};
+    for (const o of orders) {
+      statusCounts[o.status] = (statusCounts[o.status] ?? 0) + 1;
+    }
+
+    const itemCounts: Record<string, number> = {};
+    for (const o of orders) {
+      if (o.status === "CANCELLED") continue;
+      for (const item of o.items) {
+        const n = item.menuItem.name;
+        itemCounts[n] = (itemCounts[n] ?? 0) + item.quantity;
+      }
+    }
+    const topItems = Object.entries(itemCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([name, qty]) => ({ name, totalOrdered: qty }));
+
+    const recentOrders = orders.slice(0, 5).map((o) => ({
+      orderNumber: o.id.slice(-6),
+      restaurant: o.restaurant.name,
+      status: o.status,
+      total: o.total,
+      placedAt: o.createdAt.toISOString(),
+      items: o.items.map((i) => `${i.quantity}x ${i.menuItem.name}`),
+    }));
+
+    const revenueByRestaurant: Record<string, number> = {};
+    for (const o of orders) {
+      if (o.status === "CANCELLED") continue;
+      revenueByRestaurant[o.restaurant.name] =
+        (revenueByRestaurant[o.restaurant.name] ?? 0) + Number(o.total);
+    }
+
+    return JSON.stringify({
+      period: days ? `Last ${days} days` : "All time",
+      restaurants: restaurants.map((r) => r.name),
+      totalOrders: orders.length,
+      totalRevenue: totalRevenue.toFixed(2),
+      ordersByStatus: statusCounts,
+      revenueByRestaurant,
+      topMenuItems: topItems,
+      recentOrders,
+    });
   }
 
   if (name === "get_restaurant_info") {
