@@ -3,6 +3,8 @@ import { getServerSession } from "next-auth";
 import { z } from "zod";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { getStripe } from "@/lib/stripe";
+import { calculateOrderAmountCents } from "@/lib/payments";
 
 const schema = z.object({
   restaurantId: z.string(),
@@ -33,6 +35,45 @@ export async function POST(req: NextRequest) {
   const userId = (session.user as { id: string }).id;
 
   const total = items.reduce((sum, i) => sum + i.unitPrice * i.quantity, 0);
+
+  // When Stripe is configured, only accept orders backed by a real, succeeded
+  // PaymentIntent that belongs to this user, charged the right amount, and
+  // hasn't already been consumed by another order.
+  const stripe = getStripe();
+  if (stripe) {
+    if (!stripePaymentId || stripePaymentId === "MOCK") {
+      return NextResponse.json({ error: "Payment required" }, { status: 402 });
+    }
+
+    let paymentIntent;
+    try {
+      paymentIntent = await stripe.paymentIntents.retrieve(stripePaymentId);
+    } catch {
+      return NextResponse.json({ error: "Invalid payment" }, { status: 402 });
+    }
+
+    if (paymentIntent.status !== "succeeded") {
+      return NextResponse.json({ error: "Payment not completed" }, { status: 402 });
+    }
+    if (paymentIntent.metadata.userId !== userId) {
+      return NextResponse.json({ error: "Payment does not belong to this user" }, { status: 403 });
+    }
+
+    const expectedAmount = calculateOrderAmountCents(
+      items.map((i) => ({ price: i.unitPrice, quantity: i.quantity }))
+    );
+    if (paymentIntent.amount !== expectedAmount) {
+      return NextResponse.json({ error: "Payment amount mismatch" }, { status: 400 });
+    }
+
+    const existing = await prisma.order.findFirst({
+      where: { stripePaymentId },
+      select: { id: true },
+    });
+    if (existing) {
+      return NextResponse.json({ error: "Payment already used" }, { status: 409 });
+    }
+  }
 
   const order = await prisma.$transaction(async (tx) => {
     const newOrder = await tx.order.create({

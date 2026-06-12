@@ -101,7 +101,7 @@ NEXTAUTH_URL=http://localhost:3000
 NEXTAUTH_SECRET=dev-secret-change-in-production-32chars
 ```
 
-Stripe keys are optional — checkout works in mock mode without them.
+Stripe keys are optional — checkout works in mock mode without them. To enable real payments, set both `STRIPE_SECRET_KEY` and `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` (test keys from the Stripe dashboard work; use card `4242 4242 4242 4242`).
 
 `ANTHROPIC_API_KEY` is optional — it powers the support chatbot (`/api/chat` + `ChatWidget`). Without it the widget shows a "not configured" message. The chat route uses Claude (`claude-opus-4-8`) with tool use: `get_my_orders` and `get_restaurant_info` run Prisma queries scoped to the session user.
 
@@ -119,7 +119,7 @@ Stripe keys are optional — checkout works in mock mode without them.
 
 **Business side via Restaurant.ownerId.** Any signed-in user can create restaurants at `/business/new` and becomes their owner. Owner-only API routes live under `/api/business/*`; ownership is checked via `getOwnedRestaurant()` in `src/lib/business.ts`. Owners advance order status (PENDING → CONFIRMED → PREPARING → OUT_FOR_DELIVERY → DELIVERED, or CANCELLED). Deleting a menu item referenced by past orders falls back to hiding it (`isAvailable: false`).
 
-**Mock checkout.** Stripe is wired up as a dependency but checkout uses `stripePaymentId: "MOCK"` by default. To add real payments: create a PaymentIntent server-side, render Stripe Elements on the checkout page, and set `stripePaymentId` to the real intent ID.
+**Stripe payments with mock fallback.** When Stripe keys are set, checkout creates a PaymentIntent server-side (`/api/checkout/payment-intent` prices the cart from the DB — never from client-supplied prices), renders Stripe Elements (card-only, no redirect methods), and `/api/orders` verifies the intent before creating the order: status `succeeded`, `metadata.userId` matches the session, amount equals subtotal + `DELIVERY_FEE` (from `src/lib/payments.ts`), and the intent isn't already attached to another order. Without keys, checkout falls back to `stripePaymentId: "MOCK"`. Note: `Order.total` stores the item subtotal only; the Stripe charge additionally includes the delivery fee.
 
 ## Testing
 

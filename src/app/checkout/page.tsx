@@ -1,14 +1,26 @@
 "use client";
 
-import { useEffect } from "react";
+import { ReactNode, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { loadStripe } from "@stripe/stripe-js";
+import {
+  Elements,
+  PaymentElement,
+  useElements,
+  useStripe,
+} from "@stripe/react-stripe-js";
 import { useCart } from "@/context/CartContext";
 import { formatCurrency } from "@/lib/utils";
+import { DELIVERY_FEE } from "@/lib/payments";
 import Button from "@/components/ui/Button";
+import Spinner from "@/components/ui/Spinner";
+
+const publishableKey = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY;
+const stripePromise = publishableKey ? loadStripe(publishableKey) : null;
 
 const schema = z.object({
   address: z.string().min(10, "Enter a full delivery address"),
@@ -19,8 +31,10 @@ type FormData = z.infer<typeof schema>;
 
 export default function CheckoutPage() {
   const router = useRouter();
-  const { data: session, status } = useSession();
-  const { items, restaurantId, restaurantName, subtotal, clearCart } = useCart();
+  const { status } = useSession();
+  const { items, restaurantId } = useCart();
+  const [clientSecret, setClientSecret] = useState<string | null>(null);
+  const [intentError, setIntentError] = useState<string | null>(null);
 
   useEffect(() => {
     if (status === "unauthenticated") {
@@ -28,14 +42,45 @@ export default function CheckoutPage() {
     }
   }, [status, router]);
 
-  const {
-    register,
-    handleSubmit,
-    formState: { errors, isSubmitting },
-  } = useForm<FormData>({
-    resolver: zodResolver(schema),
-    defaultValues: { name: session?.user?.name ?? "" },
-  });
+  // Create (or re-create) the PaymentIntent whenever the cart changes so the
+  // charged amount always matches what's on screen.
+  const cartKey = JSON.stringify(
+    items.map((i) => [i.menuItemId, i.quantity])
+  );
+  useEffect(() => {
+    if (!stripePromise || status !== "authenticated" || items.length === 0) return;
+
+    let cancelled = false;
+    setClientSecret(null);
+    setIntentError(null);
+
+    fetch("/api/checkout/payment-intent", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        restaurantId,
+        items: items.map((i) => ({ menuItemId: i.menuItemId, quantity: i.quantity })),
+      }),
+    })
+      .then(async (res) => {
+        if (!res.ok) {
+          const err = await res.json().catch(() => null);
+          throw new Error(err?.error ?? "Could not start payment");
+        }
+        return res.json();
+      })
+      .then(({ clientSecret }) => {
+        if (!cancelled) setClientSecret(clientSecret);
+      })
+      .catch((e: Error) => {
+        if (!cancelled) setIntentError(e.message);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cartKey, status]);
 
   if (status === "loading") return null;
   if (items.length === 0) {
@@ -49,29 +94,139 @@ export default function CheckoutPage() {
     );
   }
 
-  const deliveryFee = 1.99;
-  const total = subtotal + deliveryFee;
+  if (!stripePromise) {
+    return (
+      <CheckoutForm
+        payment={
+          <div className="bg-gray-50 rounded-xl p-4 text-sm text-gray-600">
+            Mock checkout — no real payment needed for testing.
+          </div>
+        }
+      />
+    );
+  }
+
+  if (intentError) {
+    return (
+      <div className="text-center py-20">
+        <p className="text-lg font-medium text-red-500">{intentError}</p>
+        <button onClick={() => router.push("/")} className="text-orange-500 mt-2 hover:underline">
+          Browse restaurants
+        </button>
+      </div>
+    );
+  }
+
+  if (!clientSecret) {
+    return (
+      <div className="flex justify-center py-20">
+        <Spinner className="w-8 h-8" />
+      </div>
+    );
+  }
+
+  return (
+    <Elements
+      key={clientSecret}
+      stripe={stripePromise}
+      options={{ clientSecret, appearance: { variables: { colorPrimary: "#f97316" } } }}
+    >
+      <StripeCheckoutForm />
+    </Elements>
+  );
+}
+
+function StripeCheckoutForm() {
+  const stripe = useStripe();
+  const elements = useElements();
+
+  return (
+    <CheckoutForm
+      payment={<PaymentElement />}
+      onPay={async () => {
+        if (!stripe || !elements) throw new Error("Payment form is still loading");
+        const { error, paymentIntent } = await stripe.confirmPayment({
+          elements,
+          redirect: "if_required",
+        });
+        if (error) throw new Error(error.message ?? "Payment failed");
+        if (paymentIntent?.status !== "succeeded") {
+          throw new Error("Payment was not completed");
+        }
+        return paymentIntent.id;
+      }}
+    />
+  );
+}
+
+function CheckoutForm({
+  payment,
+  onPay,
+}: {
+  payment: ReactNode;
+  /** Confirms payment and returns the PaymentIntent id. Omitted in mock mode. */
+  onPay?: () => Promise<string>;
+}) {
+  const router = useRouter();
+  const { data: session } = useSession();
+  const { items, restaurantId, restaurantName, subtotal, clearCart } = useCart();
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  // If payment succeeds but the order request fails, keep the intent id so a
+  // retry creates the order without charging the card again.
+  const paidIntentId = useRef<string | null>(null);
+
+  const {
+    register,
+    handleSubmit,
+    formState: { errors, isSubmitting },
+  } = useForm<FormData>({
+    resolver: zodResolver(schema),
+    defaultValues: { name: session?.user?.name ?? "" },
+  });
+
+  const total = subtotal + DELIVERY_FEE;
 
   async function onSubmit(data: FormData) {
-    const res = await fetch("/api/orders", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        restaurantId,
-        deliveryAddress: data.address,
-        items: items.map((i) => ({
-          menuItemId: i.menuItemId,
-          quantity: i.quantity,
-          unitPrice: i.price,
-        })),
-        stripePaymentId: "MOCK",
-      }),
-    });
+    setSubmitError(null);
+    try {
+      let stripePaymentId = "MOCK";
+      if (onPay) {
+        if (!paidIntentId.current) {
+          paidIntentId.current = await onPay();
+        }
+        stripePaymentId = paidIntentId.current;
+      }
 
-    if (res.ok) {
+      const res = await fetch("/api/orders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          restaurantId,
+          deliveryAddress: data.address,
+          items: items.map((i) => ({
+            menuItemId: i.menuItemId,
+            quantity: i.quantity,
+            unitPrice: i.price,
+          })),
+          stripePaymentId,
+        }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => null);
+        throw new Error(
+          err?.error ??
+            (paidIntentId.current
+              ? "Your payment went through but the order could not be placed. Please try again."
+              : "Could not place the order. Please try again.")
+        );
+      }
+
       const { orderId } = await res.json();
       clearCart();
       router.push(`/checkout/confirmation?orderId=${orderId}`);
+    } catch (e) {
+      setSubmitError(e instanceof Error ? e.message : "Something went wrong");
     }
   }
 
@@ -116,9 +271,7 @@ export default function CheckoutPage() {
 
           <div className="bg-white rounded-2xl border border-gray-100 p-6">
             <h2 className="font-bold text-lg mb-3">Payment</h2>
-            <div className="bg-gray-50 rounded-xl p-4 text-sm text-gray-600">
-              Mock checkout — no real payment needed for testing.
-            </div>
+            {payment}
           </div>
         </div>
 
@@ -143,7 +296,7 @@ export default function CheckoutPage() {
               </div>
               <div className="flex justify-between text-gray-600">
                 <span>Delivery fee</span>
-                <span>{formatCurrency(deliveryFee)}</span>
+                <span>{formatCurrency(DELIVERY_FEE)}</span>
               </div>
               <div className="flex justify-between font-bold text-base pt-1 border-t">
                 <span>Total</span>
@@ -152,8 +305,16 @@ export default function CheckoutPage() {
             </div>
           </div>
 
+          {submitError && (
+            <p className="text-red-500 text-sm bg-red-50 rounded-xl p-3">{submitError}</p>
+          )}
+
           <Button type="submit" className="w-full" size="lg" disabled={isSubmitting}>
-            {isSubmitting ? "Placing order..." : `Place order · ${formatCurrency(total)}`}
+            {isSubmitting
+              ? onPay
+                ? "Processing payment..."
+                : "Placing order..."
+              : `${onPay ? "Pay" : "Place order"} · ${formatCurrency(total)}`}
           </Button>
         </div>
       </form>
