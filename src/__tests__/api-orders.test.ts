@@ -36,7 +36,7 @@ describe("Order schema validation", () => {
   });
 
   it("rejects missing restaurantId", () => {
-    const { restaurantId: _, ...rest } = validOrder;
+    const rest = { ...validOrder, restaurantId: undefined };
     expect(orderSchema.safeParse(rest).success).toBe(false);
   });
 

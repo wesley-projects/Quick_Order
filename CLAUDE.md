@@ -20,6 +20,7 @@ src/
     restaurants/[slug]/ # Restaurant menu page
     checkout/           # Checkout + order confirmation
     profile/            # User order history
+    business/           # Owner dashboard: create restaurants, manage menus, handle orders
     api/                # REST endpoints (auth, orders)
   components/
     ui/                 # Primitive components (Button, Spinner)
@@ -113,6 +114,8 @@ Stripe keys are optional — checkout works in mock mode without them.
 **Prisma 7 singleton pattern.** `src/lib/prisma.ts` uses `global` to avoid spawning a new `PrismaClient` on every hot-reload in development.
 
 **Order total is snapshotted.** `OrderItem.unitPrice` captures the price at time of order. Never recompute from current `MenuItem.price`.
+
+**Business side via Restaurant.ownerId.** Any signed-in user can create restaurants at `/business/new` and becomes their owner. Owner-only API routes live under `/api/business/*`; ownership is checked via `getOwnedRestaurant()` in `src/lib/business.ts`. Owners advance order status (PENDING → CONFIRMED → PREPARING → OUT_FOR_DELIVERY → DELIVERED, or CANCELLED). Deleting a menu item referenced by past orders falls back to hiding it (`isAvailable: false`).
 
 **Mock checkout.** Stripe is wired up as a dependency but checkout uses `stripePaymentId: "MOCK"` by default. To add real payments: create a PaymentIntent server-side, render Stripe Elements on the checkout page, and set `stripePaymentId` to the real intent ID.
 

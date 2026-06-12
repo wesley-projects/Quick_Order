@@ -10,7 +10,7 @@ interface Props {
 }
 
 export default function AddToCartButton({ item }: Props) {
-  const { addItem, restaurantId, restaurantName } = useCart();
+  const { addItem, restaurantName } = useCart();
   const [showConfirm, setShowConfirm] = useState(false);
 
   function handleAdd() {

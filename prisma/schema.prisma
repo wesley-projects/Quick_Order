@@ -17,6 +17,7 @@ model User {
   sessions     Session[]
   orders       Order[]
   cartItems    CartItem[]
+  restaurants  Restaurant[]
 }
 
 model Account {
@@ -71,7 +72,9 @@ model Restaurant {
   deliveryFee  Float        @default(0)
   isOpen       Boolean      @default(true)
   categoryId   String
+  ownerId      String?
   category     FoodCategory @relation(fields: [categoryId], references: [id])
+  owner        User?        @relation(fields: [ownerId], references: [id])
   menuItems    MenuItem[]
   orders       Order[]
 }

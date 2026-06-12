@@ -6,7 +6,7 @@ import { formatCurrency } from "@/lib/utils";
 import Button from "@/components/ui/Button";
 
 export default function CartSidebar() {
-  const { isOpen, closeCart, items, restaurantName, updateQuantity, removeItem, subtotal } =
+  const { isOpen, closeCart, items, restaurantName, updateQuantity, subtotal } =
     useCart();
 
   return (
