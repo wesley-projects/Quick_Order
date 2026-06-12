@@ -8,7 +8,7 @@ import CartSidebar from "@/components/layout/CartSidebar";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "QuickOrder — Fast Food Delivery",
+  title: "OrangeOrder — Fast Food Delivery",
   description: "Order food from your favourite restaurants, delivered fast.",
 };
 

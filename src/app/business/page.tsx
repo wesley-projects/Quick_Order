@@ -39,7 +39,7 @@ export default async function BusinessPage() {
         <div className="text-center py-16 text-gray-500 bg-white rounded-2xl border border-gray-100">
           <p className="font-medium">You don&apos;t have a restaurant yet</p>
           <p className="text-sm mt-1">
-            Add your restaurant to start receiving orders on QuickOrder.
+            Add your restaurant to start receiving orders on OrangeOrder.
           </p>
         </div>
       ) : (
