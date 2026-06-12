@@ -43,6 +43,9 @@ export default function Navbar() {
                     My Orders
                   </Button>
                 </Link>
+                <Link href="/settings">
+                  <Button variant="ghost" size="sm">Settings</Button>
+                </Link>
                 <Button variant="secondary" size="sm" onClick={() => signOut()}>
                   Sign out
                 </Button>
