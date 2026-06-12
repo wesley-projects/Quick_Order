@@ -42,19 +42,42 @@ prisma/
 
 Prisma 7 requires connection URL in `prisma.config.ts` (not `schema.prisma`). The config reads from `.env` via `dotenv/config`.
 
-```bash
-# Start PostgreSQL
-pg_ctlcluster 16 main start
+### Option A — Docker (easiest, all platforms)
 
-# First-time setup
+```bash
+docker run --name quickorder-pg \
+  -e POSTGRES_USER=quick_order_user \
+  -e POSTGRES_PASSWORD=secret \
+  -e POSTGRES_DB=quick_order \
+  -p 5432:5432 -d postgres:16
+```
+
+### Option B — Windows (native install)
+
+Install PostgreSQL from https://www.postgresql.org/download/windows/, then in PowerShell:
+
+```powershell
+# Start the service (name may vary by version — check Services app)
+net start postgresql-x64-16
+
+# Create user and database (psql lives in C:\Program Files\PostgreSQL\16\bin)
+& "C:\Program Files\PostgreSQL\16\bin\psql" -U postgres -c "CREATE USER quick_order_user WITH PASSWORD 'secret' CREATEDB;"
+& "C:\Program Files\PostgreSQL\16\bin\psql" -U postgres -c "CREATE DATABASE quick_order OWNER quick_order_user;"
+```
+
+### Option C — Debian/Ubuntu Linux
+
+```bash
+pg_ctlcluster 16 main start
 sudo -u postgres psql -c "CREATE USER quick_order_user WITH PASSWORD 'secret' CREATEDB;"
 sudo -u postgres psql -c "CREATE DATABASE quick_order OWNER quick_order_user;"
+```
 
-# Migrate
-npx prisma migrate dev
+### Then (all platforms)
 
-# Seed demo data
-npx prisma db seed
+```bash
+npx prisma migrate dev   # apply migrations
+npx prisma db seed       # seed demo data
 ```
 
 Demo login: `demo@quickorder.com` / `password123`
