@@ -13,7 +13,7 @@ export default function CartSidebar() {
     <>
       {isOpen && (
         <div
-          className="fixed inset-0 bg-black/40 z-40"
+          className="fixed inset-0 bg-black/40 z-40 backdrop-blur-sm"
           onClick={closeCart}
         />
       )}
@@ -45,7 +45,7 @@ export default function CartSidebar() {
           <>
             <ul className="flex-1 overflow-y-auto divide-y divide-gray-50 p-4 space-y-1">
               {items.map((item) => (
-                <li key={item.menuItemId} className="py-3 flex items-start gap-3">
+                <li key={item.menuItemId} className="py-3 flex items-start gap-3 animate-fade-up">
                   <div className="flex-1">
                     <p className="font-medium text-sm">{item.name}</p>
                     <p className="text-orange-500 text-sm font-semibold">
