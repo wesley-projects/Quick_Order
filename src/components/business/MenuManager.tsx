@@ -31,11 +31,16 @@ type FormData = z.infer<typeof schema>;
 const inputClass =
   "w-full px-3 py-2 text-sm rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-500";
 
+type EditState = { name: string; price: string; description: string; menuSection: string };
+
 export default function MenuManager({ restaurantId, items }: MenuManagerProps) {
   const router = useRouter();
   const [showForm, setShowForm] = useState(items.length === 0);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editState, setEditState] = useState<EditState>({ name: "", price: "", description: "", menuSection: "" });
+  const [editError, setEditError] = useState<string | null>(null);
 
   const {
     register,
@@ -44,19 +49,41 @@ export default function MenuManager({ restaurantId, items }: MenuManagerProps) {
     formState: { errors, isSubmitting },
   } = useForm<FormData>({ resolver: zodResolver(schema) });
 
-  async function onSubmit(data: FormData) {
-    setError(null);
-    const res = await fetch(`/api/business/restaurants/${restaurantId}/menu-items`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(data),
+  function startEdit(item: MenuManagerProps["items"][0]) {
+    setEditingId(item.id);
+    setEditState({
+      name: item.name,
+      price: item.price.toFixed(2),
+      description: item.description ?? "",
+      menuSection: item.menuSection,
     });
-    if (!res.ok) {
-      const json = await res.json();
-      setError(json.error ?? "Something went wrong");
+    setEditError(null);
+  }
+
+  async function saveEdit(id: string) {
+    const price = parseFloat(editState.price);
+    if (isNaN(price) || price <= 0) {
+      setEditError("Enter a valid price");
       return;
     }
-    reset({ name: "", description: "", price: undefined, menuSection: data.menuSection });
+    setBusyId(id);
+    const res = await fetch(`/api/business/menu-items/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: editState.name,
+        price,
+        description: editState.description || undefined,
+        menuSection: editState.menuSection,
+      }),
+    });
+    setBusyId(null);
+    if (!res.ok) {
+      const json = await res.json();
+      setEditError(json.error ?? "Something went wrong");
+      return;
+    }
+    setEditingId(null);
     router.refresh();
   }
 
@@ -78,6 +105,22 @@ export default function MenuManager({ restaurantId, items }: MenuManagerProps) {
     router.refresh();
   }
 
+  async function onSubmit(data: FormData) {
+    setError(null);
+    const res = await fetch(`/api/business/restaurants/${restaurantId}/menu-items`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+      const json = await res.json();
+      setError(json.error ?? "Something went wrong");
+      return;
+    }
+    reset({ name: "", description: "", price: undefined, menuSection: data.menuSection });
+    router.refresh();
+  }
+
   const sections = Array.from(new Set(items.map((i) => i.menuSection)));
 
   return (
@@ -90,32 +133,84 @@ export default function MenuManager({ restaurantId, items }: MenuManagerProps) {
           <ul className="divide-y divide-gray-50">
             {items
               .filter((i) => i.menuSection === section)
-              .map((item) => (
-                <li key={item.id} className="py-3 flex items-center justify-between gap-3">
-                  <div className={item.isAvailable ? "" : "opacity-50"}>
-                    <p className="font-medium text-sm">{item.name}</p>
-                    <p className="text-xs text-gray-500">{formatCurrency(item.price)}</p>
-                  </div>
-                  <div className="flex gap-2">
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      disabled={busyId === item.id}
-                      onClick={() => toggleAvailable(item.id, !item.isAvailable)}
-                    >
-                      {item.isAvailable ? "Hide" : "Show"}
-                    </Button>
-                    <Button
-                      variant="danger"
-                      size="sm"
-                      disabled={busyId === item.id}
-                      onClick={() => deleteItem(item.id)}
-                    >
-                      Delete
-                    </Button>
-                  </div>
-                </li>
-              ))}
+              .map((item) =>
+                editingId === item.id ? (
+                  <li key={item.id} className="py-3 space-y-2">
+                    <div className="grid grid-cols-2 gap-2">
+                      <input
+                        value={editState.name}
+                        onChange={(e) => setEditState((s) => ({ ...s, name: e.target.value }))}
+                        className={inputClass}
+                        placeholder="Item name"
+                      />
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={editState.price}
+                        onChange={(e) => setEditState((s) => ({ ...s, price: e.target.value }))}
+                        className={inputClass}
+                        placeholder="Price"
+                      />
+                    </div>
+                    <input
+                      value={editState.menuSection}
+                      onChange={(e) => setEditState((s) => ({ ...s, menuSection: e.target.value }))}
+                      className={inputClass}
+                      placeholder="Section"
+                    />
+                    <input
+                      value={editState.description}
+                      onChange={(e) => setEditState((s) => ({ ...s, description: e.target.value }))}
+                      className={inputClass}
+                      placeholder="Description (optional)"
+                    />
+                    {editError && (
+                      <p className="text-red-500 text-xs">{editError}</p>
+                    )}
+                    <div className="flex gap-2">
+                      <Button size="sm" disabled={busyId === item.id} onClick={() => saveEdit(item.id)}>
+                        {busyId === item.id ? "Saving..." : "Save"}
+                      </Button>
+                      <Button variant="ghost" size="sm" onClick={() => setEditingId(null)}>
+                        Cancel
+                      </Button>
+                    </div>
+                  </li>
+                ) : (
+                  <li key={item.id} className="py-3 flex items-center justify-between gap-3">
+                    <div className={item.isAvailable ? "" : "opacity-50"}>
+                      <p className="font-medium text-sm">{item.name}</p>
+                      <p className="text-xs text-gray-500">{formatCurrency(item.price)}</p>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        disabled={busyId === item.id}
+                        onClick={() => startEdit(item)}
+                      >
+                        Edit
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        disabled={busyId === item.id}
+                        onClick={() => toggleAvailable(item.id, !item.isAvailable)}
+                      >
+                        {item.isAvailable ? "Hide" : "Show"}
+                      </Button>
+                      <Button
+                        variant="danger"
+                        size="sm"
+                        disabled={busyId === item.id}
+                        onClick={() => deleteItem(item.id)}
+                      >
+                        Delete
+                      </Button>
+                    </div>
+                  </li>
+                )
+              )}
           </ul>
         </div>
       ))}
