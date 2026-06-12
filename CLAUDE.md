@@ -103,6 +103,8 @@ NEXTAUTH_SECRET=dev-secret-change-in-production-32chars
 
 Stripe keys are optional — checkout works in mock mode without them.
 
+`ANTHROPIC_API_KEY` is optional — it powers the support chatbot (`/api/chat` + `ChatWidget`). Without it the widget shows a "not configured" message. The chat route uses Claude (`claude-opus-4-8`) with tool use: `get_my_orders` and `get_restaurant_info` run Prisma queries scoped to the session user.
+
 ## Key Architectural Decisions
 
 **Cart lives in React context backed by localStorage.** Cart state persists across page navigations via a reducer. On login, cart syncs from localStorage. For logged-in users, the `/api/orders` POST clears the DB cart atomically with order creation.
