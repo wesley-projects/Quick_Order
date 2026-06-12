@@ -40,7 +40,7 @@ export default function Navbar() {
                 </Link>
                 <Link href="/profile">
                   <Button variant="ghost" size="sm">
-                    {session.user?.name ?? session.user?.email}
+                    My Orders
                   </Button>
                 </Link>
                 <Button variant="secondary" size="sm" onClick={() => signOut()}>
