@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
 
 interface ChatMessage {
@@ -17,6 +18,7 @@ const WELCOME: ChatMessage = {
 
 export default function ChatWidget() {
   const { data: session } = useSession();
+  const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([WELCOME]);
   const [input, setInput] = useState("");
@@ -63,6 +65,8 @@ export default function ChatWidget() {
       setLoading(false);
     }
   }
+
+  if (pathname.startsWith("/checkout")) return null;
 
   return (
     <>
