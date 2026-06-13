@@ -4,6 +4,8 @@ import { z } from "zod";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
+const DELIVERY_FEE = 1.99;
+
 const schema = z.object({
   restaurantId: z.string(),
   deliveryAddress: z.string().min(5),
@@ -51,7 +53,8 @@ export async function POST(req: NextRequest) {
   }
   const validItems = pricedItems as { menuItemId: string; quantity: number; unitPrice: number }[];
 
-  const total = validItems.reduce((sum, i) => sum + i.unitPrice * i.quantity, 0);
+  const subtotal = validItems.reduce((sum, i) => sum + i.unitPrice * i.quantity, 0);
+  const total = subtotal + DELIVERY_FEE;
 
   // Mock orders are confirmed instantly. Real card orders start PENDING and are
   // promoted to CONFIRMED by the Stripe webhook once payment actually succeeds —

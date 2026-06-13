@@ -22,6 +22,12 @@ export default async function ConfirmationPage({
 
   if (!order) notFound();
 
+  const itemsSubtotal = order.items.reduce(
+    (sum, i) => sum + i.unitPrice * i.quantity,
+    0
+  );
+  const deliveryFee = order.total - itemsSubtotal;
+
   return (
     <div className="max-w-lg mx-auto text-center py-12 space-y-6">
       <div className="text-6xl">🎉</div>
@@ -52,6 +58,16 @@ export default async function ConfirmationPage({
               <span>{formatCurrency(item.unitPrice * item.quantity)}</span>
             </div>
           ))}
+        </div>
+        <div className="border-t pt-3 space-y-1 text-sm text-gray-500">
+          <div className="flex justify-between">
+            <span>Subtotal</span>
+            <span>{formatCurrency(itemsSubtotal)}</span>
+          </div>
+          <div className="flex justify-between">
+            <span>Delivery fee</span>
+            <span>{formatCurrency(deliveryFee)}</span>
+          </div>
         </div>
         <div className="border-t pt-3 flex justify-between font-bold">
           <span>Total</span>
