@@ -32,7 +32,26 @@ export async function POST(req: NextRequest) {
   const { restaurantId, deliveryAddress, items, stripePaymentId } = parsed.data;
   const userId = (session.user as { id: string }).id;
 
-  const total = items.reduce((sum, i) => sum + i.unitPrice * i.quantity, 0);
+  // Prices are authoritative from the DB — never trust client-supplied unitPrice.
+  const menuItems = await prisma.menuItem.findMany({
+    where: { id: { in: items.map((i) => i.menuItemId) }, restaurantId },
+    select: { id: true, price: true },
+  });
+  const priceById = new Map(menuItems.map((m) => [m.id, m.price]));
+
+  const pricedItems = items.map((i) => {
+    const price = priceById.get(i.menuItemId);
+    return price === undefined ? null : { ...i, unitPrice: price };
+  });
+  if (pricedItems.some((i) => i === null)) {
+    return NextResponse.json(
+      { error: "One or more items are no longer available." },
+      { status: 400 }
+    );
+  }
+  const validItems = pricedItems as { menuItemId: string; quantity: number; unitPrice: number }[];
+
+  const total = validItems.reduce((sum, i) => sum + i.unitPrice * i.quantity, 0);
 
   // Mock orders are confirmed instantly. Real card orders start PENDING and are
   // promoted to CONFIRMED by the Stripe webhook once payment actually succeeds —
@@ -50,7 +69,7 @@ export async function POST(req: NextRequest) {
         stripePaymentId: payId,
         status,
         items: {
-          create: items.map((i) => ({
+          create: validItems.map((i) => ({
             menuItemId: i.menuItemId,
             quantity: i.quantity,
             unitPrice: i.unitPrice,
