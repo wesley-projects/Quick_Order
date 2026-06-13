@@ -34,6 +34,12 @@ export async function POST(req: NextRequest) {
 
   const total = items.reduce((sum, i) => sum + i.unitPrice * i.quantity, 0);
 
+  // Mock orders are confirmed instantly. Real card orders start PENDING and are
+  // promoted to CONFIRMED by the Stripe webhook once payment actually succeeds —
+  // so a charge can never exist without a matching order.
+  const payId = stripePaymentId ?? "MOCK";
+  const status = payId === "MOCK" ? "CONFIRMED" : "PENDING";
+
   const order = await prisma.$transaction(async (tx) => {
     const newOrder = await tx.order.create({
       data: {
@@ -41,8 +47,8 @@ export async function POST(req: NextRequest) {
         restaurantId,
         deliveryAddress,
         total,
-        stripePaymentId: stripePaymentId ?? "MOCK",
-        status: "CONFIRMED",
+        stripePaymentId: payId,
+        status,
         items: {
           create: items.map((i) => ({
             menuItemId: i.menuItemId,

@@ -35,6 +35,7 @@ export default function CheckoutPage() {
   const { items, restaurantId } = useCart();
 
   const [clientSecret, setClientSecret] = useState<string | null>(null);
+  const [paymentIntentId, setPaymentIntentId] = useState<string | null>(null);
   const [mock, setMock] = useState(false);
   const [initError, setInitError] = useState<string | null>(null);
   const requested = useRef(false);
@@ -62,7 +63,10 @@ export default function CheckoutPage() {
         const json = await res.json();
         if (!res.ok) throw new Error(json.error ?? "Could not start checkout.");
         if (json.mock || !stripePromise) setMock(true);
-        else setClientSecret(json.clientSecret);
+        else {
+          setClientSecret(json.clientSecret);
+          setPaymentIntentId(json.paymentIntentId);
+        }
       })
       .catch((e) => setInitError(e.message));
   }, [items, restaurantId]);
@@ -89,7 +93,7 @@ export default function CheckoutPage() {
 
   // Mock mode (no Stripe keys) — render the form immediately.
   if (mock) {
-    return <CheckoutForm mock />;
+    return <CheckoutForm mock paymentIntentId={null} />;
   }
 
   // Real payments — wait for the PaymentIntent, then mount Stripe Elements.
@@ -101,18 +105,26 @@ export default function CheckoutPage() {
 
   return (
     <Elements stripe={stripePromise} options={{ clientSecret, appearance: { theme: "stripe" } }}>
-      <CheckoutForm mock={false} />
+      <CheckoutForm mock={false} paymentIntentId={paymentIntentId} />
     </Elements>
   );
 }
 
-function CheckoutForm({ mock }: { mock: boolean }) {
+function CheckoutForm({
+  mock,
+  paymentIntentId,
+}: {
+  mock: boolean;
+  paymentIntentId: string | null;
+}) {
   const router = useRouter();
   const { data: session } = useSession();
   const { items, restaurantId, restaurantName, subtotal, clearCart } = useCart();
   const stripe = useStripe();
   const elements = useElements();
   const [payError, setPayError] = useState<string | null>(null);
+  // Remember the order we created so a retry after a card error doesn't make a duplicate.
+  const createdOrderId = useRef<string | null>(null);
 
   const {
     register,
@@ -130,9 +142,8 @@ function CheckoutForm({ mock }: { mock: boolean }) {
 
     // Mock mode — skip the card charge entirely.
     if (mock) {
-      const res = await postOrder(data, "MOCK");
-      if (res.ok) {
-        const { orderId } = await res.json();
+      const orderId = await ensureOrder(data, "MOCK");
+      if (orderId) {
         clearCart();
         router.push(`/checkout/confirmation?orderId=${orderId}`);
       } else {
@@ -141,40 +152,44 @@ function CheckoutForm({ mock }: { mock: boolean }) {
       return;
     }
 
-    if (!stripe || !elements) return;
+    if (!stripe || !elements || !paymentIntentId) return;
+
+    // Order-first: persist the order as PENDING *before* charging, so a charge can
+    // never exist without a matching order. The webhook flips it to CONFIRMED.
+    const orderId = await ensureOrder(data, paymentIntentId);
+    if (!orderId) {
+      setPayError("Could not start your order. Please try again.");
+      return;
+    }
 
     // Charge the card. redirect: "if_required" keeps card payments inline.
     const { error, paymentIntent } = await stripe.confirmPayment({
       elements,
       redirect: "if_required",
       confirmParams: {
-        return_url: `${window.location.origin}/checkout/confirmation`,
+        return_url: `${window.location.origin}/checkout/confirmation?orderId=${orderId}`,
       },
     });
 
     if (error) {
+      // The PENDING order stays; the payment_failed webhook will cancel it.
       setPayError(error.message ?? "Payment failed. Please check your card details.");
       return;
     }
 
     if (paymentIntent?.status === "succeeded") {
-      const res = await postOrder(data, paymentIntent.id);
-      if (res.ok) {
-        const { orderId } = await res.json();
-        clearCart();
-        router.push(`/checkout/confirmation?orderId=${orderId}`);
-      } else {
-        setPayError(
-          "Your payment succeeded but we couldn't save the order. Please contact support."
-        );
-      }
+      clearCart();
+      router.push(`/checkout/confirmation?orderId=${orderId}`);
     } else {
       setPayError("Payment was not completed. Please try again.");
     }
   }
 
-  async function postOrder(data: FormData, stripePaymentId: string) {
-    return fetch("/api/orders", {
+  // Creates the order once and caches its id, so retries reuse the same order.
+  async function ensureOrder(data: FormData, stripePaymentId: string): Promise<string | null> {
+    if (createdOrderId.current) return createdOrderId.current;
+
+    const res = await fetch("/api/orders", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -188,6 +203,10 @@ function CheckoutForm({ mock }: { mock: boolean }) {
         stripePaymentId,
       }),
     });
+    if (!res.ok) return null;
+    const { orderId } = await res.json();
+    createdOrderId.current = orderId;
+    return orderId;
   }
 
   return (

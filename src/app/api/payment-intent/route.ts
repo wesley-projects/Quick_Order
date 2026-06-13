@@ -66,5 +66,9 @@ export async function POST(req: NextRequest) {
     metadata: { userId, restaurantId },
   });
 
-  return NextResponse.json({ clientSecret: intent.client_secret, amount: total });
+  return NextResponse.json({
+    clientSecret: intent.client_secret,
+    paymentIntentId: intent.id,
+    amount: total,
+  });
 }
