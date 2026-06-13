@@ -5,6 +5,7 @@ import Providers from "./providers";
 import Navbar from "@/components/layout/Navbar";
 import CartSidebar from "@/components/layout/CartSidebar";
 import ChatWidget from "@/components/chat/ChatWidget";
+import { Analytics } from "@vercel/analytics/next";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -25,6 +26,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             {children}
           </main>
         </Providers>
+        <Analytics />
       </body>
     </html>
   );
