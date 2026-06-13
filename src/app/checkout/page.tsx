@@ -17,8 +17,6 @@ import { useCart } from "@/context/CartContext";
 import { formatCurrency } from "@/lib/utils";
 import Button from "@/components/ui/Button";
 
-const DELIVERY_FEE = 1.99;
-
 const pubKey = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY;
 const stripePromise = pubKey ? loadStripe(pubKey) : null;
 
@@ -36,6 +34,7 @@ export default function CheckoutPage() {
 
   const [clientSecret, setClientSecret] = useState<string | null>(null);
   const [paymentIntentId, setPaymentIntentId] = useState<string | null>(null);
+  const [deliveryFee, setDeliveryFee] = useState<number>(0);
   const [mock, setMock] = useState(false);
   const [initError, setInitError] = useState<string | null>(null);
   const requested = useRef(false);
@@ -62,6 +61,7 @@ export default function CheckoutPage() {
       .then(async (res) => {
         const json = await res.json();
         if (!res.ok) throw new Error(json.error ?? "Could not start checkout.");
+        setDeliveryFee(json.deliveryFee ?? 0);
         if (json.mock || !stripePromise) setMock(true);
         else {
           setClientSecret(json.clientSecret);
@@ -93,7 +93,7 @@ export default function CheckoutPage() {
 
   // Mock mode (no Stripe keys) — render the form immediately.
   if (mock) {
-    return <CheckoutForm mock paymentIntentId={null} />;
+    return <CheckoutForm mock paymentIntentId={null} deliveryFee={deliveryFee} />;
   }
 
   // Real payments — wait for the PaymentIntent, then mount Stripe Elements.
@@ -105,7 +105,7 @@ export default function CheckoutPage() {
 
   return (
     <Elements stripe={stripePromise} options={{ clientSecret, appearance: { theme: "stripe" } }}>
-      <CheckoutForm mock={false} paymentIntentId={paymentIntentId} />
+      <CheckoutForm mock={false} paymentIntentId={paymentIntentId} deliveryFee={deliveryFee} />
     </Elements>
   );
 }
@@ -113,9 +113,11 @@ export default function CheckoutPage() {
 function CheckoutForm({
   mock,
   paymentIntentId,
+  deliveryFee,
 }: {
   mock: boolean;
   paymentIntentId: string | null;
+  deliveryFee: number;
 }) {
   const router = useRouter();
   const { data: session } = useSession();
@@ -135,7 +137,7 @@ function CheckoutForm({
     defaultValues: { name: session?.user?.name ?? "" },
   });
 
-  const total = subtotal + DELIVERY_FEE;
+  const total = subtotal + deliveryFee;
 
   async function onSubmit(data: FormData) {
     setPayError(null);
@@ -282,7 +284,7 @@ function CheckoutForm({
               </div>
               <div className="flex justify-between text-gray-600">
                 <span>Delivery fee</span>
-                <span>{formatCurrency(DELIVERY_FEE)}</span>
+                <span>{formatCurrency(deliveryFee)}</span>
               </div>
               <div className="flex justify-between font-bold text-base pt-1 border-t">
                 <span>Total</span>

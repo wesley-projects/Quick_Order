@@ -5,6 +5,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import MenuManager from "@/components/business/MenuManager";
 import OrderRow from "@/components/business/OrderRow";
+import RestaurantSettings from "@/components/business/RestaurantSettings";
 
 export default async function ManageRestaurantPage({
   params,
@@ -79,6 +80,15 @@ export default async function ManageRestaurantPage({
           </ul>
         )}
       </section>
+
+      <RestaurantSettings
+        restaurantId={restaurant.id}
+        defaults={{
+          deliveryFee: restaurant.deliveryFee,
+          deliveryTime: restaurant.deliveryTime,
+          isOpen: restaurant.isOpen,
+        }}
+      />
 
       <section className="space-y-3">
         <h2 className="text-lg font-bold">Menu</h2>

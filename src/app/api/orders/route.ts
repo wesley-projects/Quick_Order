@@ -4,8 +4,6 @@ import { z } from "zod";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
-const DELIVERY_FEE = 1.99;
-
 const schema = z.object({
   restaurantId: z.string(),
   deliveryAddress: z.string().min(5),
@@ -34,11 +32,20 @@ export async function POST(req: NextRequest) {
   const { restaurantId, deliveryAddress, items, stripePaymentId } = parsed.data;
   const userId = (session.user as { id: string }).id;
 
-  // Prices are authoritative from the DB — never trust client-supplied unitPrice.
-  const menuItems = await prisma.menuItem.findMany({
-    where: { id: { in: items.map((i) => i.menuItemId) }, restaurantId },
-    select: { id: true, price: true },
-  });
+  // Prices are authoritative from the DB — never trust client-supplied values.
+  const [restaurantRecord, menuItems] = await Promise.all([
+    prisma.restaurant.findUnique({
+      where: { id: restaurantId },
+      select: { deliveryFee: true },
+    }),
+    prisma.menuItem.findMany({
+      where: { id: { in: items.map((i) => i.menuItemId) }, restaurantId },
+      select: { id: true, price: true },
+    }),
+  ]);
+  if (!restaurantRecord) {
+    return NextResponse.json({ error: "Restaurant not found." }, { status: 400 });
+  }
   const priceById = new Map(menuItems.map((m) => [m.id, m.price]));
 
   const pricedItems = items.map((i) => {
@@ -54,7 +61,7 @@ export async function POST(req: NextRequest) {
   const validItems = pricedItems as { menuItemId: string; quantity: number; unitPrice: number }[];
 
   const subtotal = validItems.reduce((sum, i) => sum + i.unitPrice * i.quantity, 0);
-  const total = subtotal + DELIVERY_FEE;
+  const total = subtotal + Number(restaurantRecord.deliveryFee);
 
   // Mock orders are confirmed instantly. Real card orders start PENDING and are
   // promoted to CONFIRMED by the Stripe webhook once payment actually succeeds —

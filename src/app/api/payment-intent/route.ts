@@ -5,8 +5,6 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { stripe } from "@/lib/stripe";
 
-const DELIVERY_FEE = 1.99;
-
 const schema = z.object({
   restaurantId: z.string(),
   items: z
@@ -34,6 +32,14 @@ export async function POST(req: NextRequest) {
   const userId = (session.user as { id: string }).id;
 
   // Recompute the amount server-side from DB prices — never trust the client.
+  const restaurant = await prisma.restaurant.findUnique({
+    where: { id: restaurantId },
+    select: { deliveryFee: true },
+  });
+  if (!restaurant) {
+    return NextResponse.json({ error: "Restaurant not found." }, { status: 400 });
+  }
+
   const menuItems = await prisma.menuItem.findMany({
     where: { id: { in: items.map((i) => i.menuItemId) }, restaurantId },
     select: { id: true, price: true },
@@ -51,12 +57,13 @@ export async function POST(req: NextRequest) {
     }
     subtotal += price * i.quantity;
   }
-  const total = subtotal + DELIVERY_FEE;
+  const deliveryFee = Number(restaurant.deliveryFee);
+  const total = subtotal + deliveryFee;
   const amountCents = Math.round(total * 100);
 
   // No Stripe key configured → tell the client to fall back to mock checkout.
   if (!stripe) {
-    return NextResponse.json({ mock: true, amount: total });
+    return NextResponse.json({ mock: true, amount: total, deliveryFee });
   }
 
   const intent = await stripe.paymentIntents.create({
@@ -70,5 +77,6 @@ export async function POST(req: NextRequest) {
     clientSecret: intent.client_secret,
     paymentIntentId: intent.id,
     amount: total,
+    deliveryFee,
   });
 }
