@@ -39,7 +39,7 @@ export default function Navbar() {
             {session ? (
               <div className="flex items-center gap-2">
                 <Link href="/business">
-                  <Button variant="ghost" size="sm">My business</Button>
+                  <Button variant="ghost" size="sm">My Business</Button>
                 </Link>
                 <Link href="/profile">
                   <Button variant="ghost" size="sm">
