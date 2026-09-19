@@ -1,0 +1,156 @@
+// RestockRadar — Pokemon TCG restock tracker.
+//
+// SQLite keeps the demo zero-setup: `npm run db:reset` and you have a working
+// database. Swap `provider` to "postgresql" and the adapter in src/lib/prisma.ts
+// when you outgrow it; nothing else in the schema is SQLite-specific.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+/// A thing you can buy at a retail price: an Elite Trainer Box, a booster
+/// bundle, a tin. `msrpCents` is the number every price on the site is judged
+/// against — at or below it is "at retail", above it is a markup.
+model Product {
+  id          String   @id @default(cuid())
+  slug        String   @unique
+  name        String
+  setName     String
+  kind        String // ProductKind — see src/lib/constants.ts
+  msrpCents   Int
+  imageUrl    String?
+  releaseDate DateTime?
+  upc         String?
+  description String?
+  isTracked   Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  listings Listing[]
+  watches  Watch[]
+
+  @@index([kind])
+  @@index([setName])
+}
+
+/// A store we check. `adapterKey` picks the checker implementation in
+/// src/lib/checker/adapters — an unknown key just means the retailer is never
+/// polled, so half-configured retailers are safe to leave in the database.
+model Retailer {
+  id         String  @id @default(cuid())
+  slug       String  @unique
+  name       String
+  homepage   String
+  adapterKey String
+  accent     String  @default("#8b95ad")
+  isEnabled  Boolean @default(true)
+  /// Minimum seconds between checks, so one retailer can be polled gently.
+  minIntervalSec Int @default(180)
+
+  listings Listing[]
+}
+
+/// One product at one retailer: the URL we poll and the last thing we saw
+/// there. Current state lives here; the history lives in StockEvent.
+model Listing {
+  id         String @id @default(cuid())
+  productId  String
+  retailerId String
+  url        String
+  sku        String?
+
+  status        String    @default("UNKNOWN") // StockStatus
+  priceCents    Int?
+  lastCheckedAt DateTime?
+  lastInStockAt DateTime?
+  /// Consecutive failed checks. The runner backs off rather than hammering.
+  failureCount  Int       @default(0)
+  isActive      Boolean   @default(true)
+
+  product  Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
+  retailer Retailer   @relation(fields: [retailerId], references: [id], onDelete: Cascade)
+  events   StockEvent[]
+  checks   CheckRun[]
+
+  @@unique([productId, retailerId])
+  @@index([status])
+}
+
+/// Something changed. Written only on a transition, so this table is the
+/// restock feed and the price history at once.
+model StockEvent {
+  id        String   @id @default(cuid())
+  listingId String
+  /// RESTOCK | SOLD_OUT | PRICE_CHANGE | PREORDER_OPEN
+  kind      String
+  status    String
+  priceCents Int?
+  prevPriceCents Int?
+  /// Snapshotted so the feed stays truthful if MSRP is corrected later.
+  msrpCents Int
+  atRetail  Boolean
+  createdAt DateTime @default(now())
+
+  listing Listing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  alerts  Alert[]
+
+  @@index([createdAt])
+  @@index([kind, createdAt])
+}
+
+/// Every poll, success or failure. Powers the /status page and the backoff.
+model CheckRun {
+  id         String   @id @default(cuid())
+  listingId  String
+  ok         Boolean
+  status     String?
+  priceCents Int?
+  error      String?
+  durationMs Int
+  createdAt  DateTime @default(now())
+
+  listing Listing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  @@index([createdAt])
+  @@index([listingId, createdAt])
+}
+
+/// "Tell me when this is in stock at or below X." Keyed by email; the
+/// unsubscribe token is the only credential, so it must stay unguessable.
+model Watch {
+  id            String   @id @default(cuid())
+  email         String
+  productId     String
+  /// null means "at or below MSRP".
+  maxPriceCents Int?
+  token         String   @unique
+  isActive      Boolean  @default(true)
+  lastNotifiedAt DateTime?
+  createdAt     DateTime @default(now())
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  alerts  Alert[]
+
+  @@unique([email, productId])
+  @@index([productId, isActive])
+}
+
+/// A notification we sent (or tried to). Also the dedupe record: one alert per
+/// watch per event, enforced by the database rather than by timing.
+model Alert {
+  id           String   @id @default(cuid())
+  watchId      String
+  stockEventId String
+  channel      String
+  ok           Boolean
+  error        String?
+  createdAt    DateTime @default(now())
+
+  watch      Watch      @relation(fields: [watchId], references: [id], onDelete: Cascade)
+  stockEvent StockEvent @relation(fields: [stockEventId], references: [id], onDelete: Cascade)
+
+  @@unique([watchId, stockEventId])
+}

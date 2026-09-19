@@ -1,3 +1,10 @@
+> This repository contains two independent apps:
+>
+> - **QuickOrder** (repo root) — the food delivery site. See `CLAUDE.md`.
+> - **[RestockRadar](./pokemon-restock/)** (`pokemon-restock/`) — a Pokémon TCG
+>   restock tracker with its own `package.json`, database and README. It is
+>   self-contained and can be lifted into its own repository as-is.
+
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
 ## Getting Started
