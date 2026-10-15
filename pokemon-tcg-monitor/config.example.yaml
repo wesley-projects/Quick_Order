@@ -1,0 +1,38 @@
+# Copy to config.yaml and edit. ${VARS} are read from the environment.
+
+settings:
+  default_interval_seconds: 300   # how often each product is checked
+  min_interval_seconds: 60        # floor for any product (must be >= 30)
+  per_domain_gap_seconds: 5       # minimum spacing between requests to the same site
+  respect_robots_txt: true
+  alert_on_first_check: true      # alert if something is already in stock at startup
+  state_file: state.json
+  user_agent: "pokemon-tcg-monitor/0.1 (personal stock alerts)"
+
+notifiers:
+  - type: console
+  # - type: discord
+  #   webhook_url: ${DISCORD_WEBHOOK_URL}
+  #   mention: "@here"            # optional
+  # - type: ntfy                  # free phone push: install the ntfy app, subscribe to your topic
+  #   topic: ${NTFY_TOPIC}
+
+products:
+  # Shopify stores (most indie card shops): use the normal product URL.
+  # The monitor reads <url>.js, which is cheap and reliable.
+  - name: "Example Shopify ETB"
+    url: https://example-card-shop.com/products/pokemon-elite-trainer-box
+    checker: shopify
+    max_price: 64.99              # optional: only alert at or below this price
+
+  # Any other site: the html checker tries, in order:
+  #   1. in_stock_selector (element exists = in stock)
+  #   2. schema.org JSON-LD "availability" on the page
+  #   3. visible text: in stock unless any out_of_stock_text phrase appears
+  - name: "Example booster bundle"
+    url: https://example.com/pokemon-booster-bundle
+    checker: html
+    interval_seconds: 600
+    # in_stock_selector: "button.add-to-cart:not([disabled])"
+    # price_selector: ".product-price"
+    # out_of_stock_text: ["sold out", "out of stock", "coming soon"]
