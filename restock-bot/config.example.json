@@ -1,0 +1,22 @@
+{
+  "interval_seconds": 300,
+  "require_price": true,
+  "notify": {
+    "discord_webhook": "",
+    "ntfy_topic": "",
+    "ntfy_server": "https://ntfy.sh"
+  },
+  "products": [
+    {
+      "name": "Prismatic Evolutions Elite Trainer Box",
+      "url": "https://www.example-retailer.com/product/prismatic-evolutions-etb",
+      "msrp": 49.99
+    },
+    {
+      "name": "Surging Sparks Booster Bundle",
+      "url": "https://www.example-retailer.com/product/surging-sparks-booster-bundle",
+      "msrp": 26.94,
+      "tolerance": 0.05
+    }
+  ]
+}
